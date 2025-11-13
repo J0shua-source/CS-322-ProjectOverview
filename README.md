@@ -1,5 +1,5 @@
 # CS-322-ProjectOverview
-Team: Chris, Jermey and Joshua
+Team: Chris, Jeremy and Joshua
 
 Team Name: CJJ
 
