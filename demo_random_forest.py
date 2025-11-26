@@ -68,9 +68,6 @@ accuracy = correct / len(rf.y_test_internal)
 print()
 print(f"Test Accuracy: {accuracy:.2%} ({correct}/{len(rf.y_test_internal)})")
 
-print(f"\nNote: Each tree randomly selects F={rf.max_features} features AT EACH SPLIT")
-print(f"(Not per tree, but at every decision node during tree construction)")
-
 print()
 print("=" * 70)
 print("Additional Test: Training on Full Dataset")
