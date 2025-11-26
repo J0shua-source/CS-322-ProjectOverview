@@ -1,5 +1,4 @@
 from mysklearn.myclassifiers import MyRandomForestClassifier
-from mysklearn.myevaluation import train_test_split
 import random
 
 # Set random seed for reproducibility
@@ -28,72 +27,68 @@ y_train_interview = ["False", "False", "True", "True", "True", "False", "True",
 
 print("=" * 70)
 print("MyRandomForestClassifier Demo - Interview Dataset")
+print("With Internal Stratified Train/Test Split")
 print("=" * 70)
 print("Dataset: Job Interview Predictions")
 print(f"Total instances: {len(X_train_interview)}")
 print(f"Attributes: {header_interview}")
 print()
 
-# Split into train and test
-X_train, X_test, y_train, y_test = train_test_split(
-    X_train_interview, y_train_interview, test_size=0.33, random_state=0
-)
-
-print(f"Training samples: {len(X_train)}")
-print(f"Test samples: {len(X_test)}")
-print()
-
-# Create and train random forest with different configurations
+# Create and train random forest with N=20, M=7, F=2
+# The classifier will internally create a stratified 1/3 test set
+# and train on the remaining 2/3 (remainder set)
 print("Testing Random Forest with N=20, M=7, F=2")
+print("(Classifier performs internal stratified split: 2/3 train, 1/3 test)")
 print("-" * 70)
 rf = MyRandomForestClassifier(n_estimators=20, max_features=2, 
-                              bootstrap=True, random_state=0)
+                              bootstrap=True, random_state=0, test_size=0.33)
 
-print("Training the forest...")
-rf.fit(X_train, y_train)
+print("\nTraining the forest...")
+print("(Internal stratified split will create remainder and test sets)")
+rf.fit(X_train_interview, y_train_interview)
 
 print("\nForest Information:")
 rf.print_forest_info()
 
-# Make predictions
-print("\nMaking predictions on test set...")
-predictions = rf.predict(X_test)
+# Make predictions on the internal test set
+print("\n" + "=" * 70)
+print("Predictions on Internal Stratified Test Set")
+print("-" * 70)
+predictions = rf.predict(rf.X_test_internal)
 
 print("\nTest Instances and Predictions:")
-for i, (x, pred, actual) in enumerate(zip(X_test, predictions, y_test)):
+for i, (x, pred, actual) in enumerate(zip(rf.X_test_internal, predictions, rf.y_test_internal)):
     match = "✓" if pred == actual else "✗"
     print(f"  {i+1}. {dict(zip(header_interview[:-1], x))}")
     print(f"     Predicted: {pred}, Actual: {actual} {match}")
 
 # Calculate accuracy
-correct = sum(1 for pred, actual in zip(predictions, y_test) if pred == actual)
-accuracy = correct / len(y_test)
+correct = sum(1 for pred, actual in zip(predictions, rf.y_test_internal) if pred == actual)
+accuracy = correct / len(rf.y_test_internal)
 print()
-print(f"Test Accuracy: {accuracy:.2%} ({correct}/{len(y_test)})")
+print(f"Test Accuracy: {accuracy:.2%} ({correct}/{len(rf.y_test_internal)})")
 
-# Show feature subsets used
-print("\nFeature subsets used by each tree:")
-for i, subset in enumerate(rf.feature_subsets):
-    feature_names = [header_interview[idx] for idx in subset]
-    print(f"  Tree {i+1}: {feature_names}")
+print(f"\nNote: Each tree randomly selects F={rf.max_features} features AT EACH SPLIT")
+print(f"(Not per tree, but at every decision node during tree construction)")
 
 print()
 print("=" * 70)
-print("Testing with entire dataset (N=20, M=7, F=2)")
+print("Additional Test: Training on Full Dataset")
+print("(For comparison - no internal split)")
 print("-" * 70)
 
-# Train on full dataset
+# Train on full dataset with test_size=0 to disable splitting
 rf_full = MyRandomForestClassifier(n_estimators=20, max_features=2, 
-                                   bootstrap=True, random_state=42)
+                                   bootstrap=True, random_state=42, test_size=0.0)
 rf_full.fit(X_train_interview, y_train_interview)
 
 # Predict on same data
-predictions_full = rf_full.predict(X_train_interview)
-correct_full = sum(1 for pred, actual in zip(predictions_full, y_train_interview) 
+predictions_full = rf_full.predict(rf_full.X_remainder)
+correct_full = sum(1 for pred, actual in zip(predictions_full, rf_full.y_remainder) 
                   if pred == actual)
-accuracy_full = correct_full / len(y_train_interview)
+accuracy_full = correct_full / len(rf_full.y_remainder)
 
-print(f"\nTraining Accuracy: {accuracy_full:.2%} ({correct_full}/{len(y_train_interview)})")
+print(f"\nTraining Accuracy (no test split): {accuracy_full:.2%} ({correct_full}/{len(rf_full.y_remainder)})")
 
 print("\n" + "=" * 70)
 print("Demo Complete!")

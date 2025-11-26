@@ -4,8 +4,7 @@
 # Assignment Project
 # 12/1/25
 
-# Description: For PA#7, This module defines binary classification evaluation metrics, to include
-# precision, recall, and F1 scores. 
+# Description: Evaluation metrics and dataset splitting functions
 ##############################################
 from mysklearn import myutils
 
@@ -13,6 +12,7 @@ import numpy as np # use numpy's random number generation
 import math
 
 from mysklearn import myutils
+
 
 def train_test_split(X, y, test_size=0.33, random_state=None, shuffle=True):
     """Split dataset into train and test sets based on a test set size.
@@ -472,3 +472,70 @@ def binary_f1_score(y_true, y_pred, labels=None, pos_label=None):
     
     f1 = 2 * (precision * recall) / (precision + recall)
     return f1
+
+def stratified_train_test_split(X, y, test_size=0.33, random_state=None, shuffle=True):
+    """Split dataset into stratified train and test sets.
+
+    Args:
+        X(list of list of obj): The list of samples
+            The shape of X is (n_samples, n_features)
+        y(list of obj): The target y values (parallel to X)
+            The shape of y is n_samples
+        test_size(float or int): float for proportion of dataset to be in test set (e.g. 0.33 for a 2:1 split)
+            or int for absolute number of instances to be in test set (e.g. 5 for 5 instances in test set)
+        random_state(int): integer used for seeding a random number generator for reproducible results
+        shuffle(bool): whether or not to randomize the order of the instances before splitting
+
+    Returns:
+        X_train(list of list of obj): The list of training samples
+        X_test(list of list of obj): The list of testing samples
+        y_train(list of obj): The list of target y values for training (parallel to X_train)
+        y_test(list of obj): The list of target y values for testing (parallel to X_test)
+    """
+    # Group indices by class
+    class_indices = {}
+    for i, label in enumerate(y):
+        if label not in class_indices:
+            class_indices[label] = []
+        class_indices[label].append(i)
+    
+    # Shuffle indices within each class if requested
+    if shuffle:
+        if random_state is not None:
+            np.random.seed(random_state)
+        for label in class_indices:
+            np.random.shuffle(class_indices[label])
+    
+    # Calculate number of test samples per class
+    X_train, X_test = [], []
+    y_train, y_test = [], []
+    
+    for label, indices in class_indices.items():
+        n_class_samples = len(indices)
+        
+        # Calculate test size for this class
+        if isinstance(test_size, float):
+            n_test = math.ceil(n_class_samples * test_size)
+        else:
+            # Proportional split for absolute test_size
+            n_test = math.ceil(len(indices) * (test_size / len(y)))
+        
+        # Split indices for this class
+        test_indices = indices[:n_test]
+        train_indices = indices[n_test:]
+        
+        # Add to test and train sets
+        for idx in test_indices:
+            X_test.append(X[idx][:])  # Deep copy
+            y_test.append(y[idx])
+        
+        for idx in train_indices:
+            X_train.append(X[idx][:])  # Deep copy
+            y_train.append(y[idx])
+    
+    # Shuffle the final train and test sets if requested
+    if shuffle:
+        myutils.shuffle_in_unison(X_train, y_train, random_state)
+        myutils.shuffle_in_unison(X_test, y_test, random_state)
+    
+    return X_train, X_test, y_train, y_test

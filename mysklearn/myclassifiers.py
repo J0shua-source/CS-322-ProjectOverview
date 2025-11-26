@@ -20,12 +20,17 @@ class MyDecisionTreeClassifier:
             https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html
         Terminology: instance = sample = row and attribute = feature = column
     """
-    def __init__(self):
+    def __init__(self, max_features_per_split=None):
         """Initializer for MyDecisionTreeClassifier.
+        
+        Args:
+            max_features_per_split(int): If set, randomly selects this many features
+                at each split. Used for Random Forest. Default None uses all features.
         """
         self.X_train = None
         self.y_train = None
         self.tree = None
+        self.max_features_per_split = max_features_per_split
 
     def fit(self, X_train, y_train):
         """Fits a decision tree classifier to X_train and y_train using the TDIDT
@@ -211,10 +216,16 @@ class MyDecisionTreeClassifier:
         best_attribute = None
         best_info_gain = -1
         
+        # For Random Forest: randomly select F features from available attributes
+        if self.max_features_per_split is not None and len(available_attributes) > self.max_features_per_split:
+            candidate_attributes = random.sample(available_attributes, self.max_features_per_split)
+        else:
+            candidate_attributes = available_attributes
+        
         # Calculate entropy of current partition
         current_entropy = self._calculate_entropy(y)
         
-        for attribute in available_attributes:
+        for attribute in candidate_attributes:
             # Calculate weighted entropy after split
             partitions = {}
             for i, instance in enumerate(X):
@@ -390,24 +401,30 @@ class MyDecisionTreeClassifier:
 
 class MyRandomForestClassifier:
     """Represents a random forest classifier using bootstrap aggregating (bagging)
-    and random attribute subset selection.
+    and random attribute subset selection at each split.
 
     Attributes:
         n_estimators(int): The number of decision trees in the forest.
-        max_features(int): The maximum number of features to consider when looking 
-            for the best split. If None, uses sqrt(n_features).
+        max_features(int): The maximum number of features to randomly select at EACH split
+            in EACH tree. If None, uses sqrt(n_features).
         bootstrap(bool): Whether bootstrap samples are used when building trees.
         random_state(int): Seed for random number generator for reproducibility.
+        test_size(float): Proportion of dataset to use as stratified test set (default=0.33).
         trees(list of MyDecisionTreeClassifier): The collection of decision trees.
-        feature_subsets(list of list of int): The feature subsets used for each tree.
+        X_remainder(list): The training portion (remainder set) after stratified split.
+        y_remainder(list): The training labels (remainder set) after stratified split.
+        X_test_internal(list): The stratified test set created during fit.
+        y_test_internal(list): The stratified test labels created during fit.
 
     Notes:
         Loosely based on sklearn's RandomForestClassifier:
             https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
-        Implements ensemble learning using bagging and random feature selection.
+        Implements ensemble learning using:
+        - Bootstrap aggregating (bagging) for each tree
+        - Random feature selection of F attributes AT EACH SPLIT (not per tree)
     """
     
-    def __init__(self, n_estimators=10, max_features=None, bootstrap=True, random_state=None):
+    def __init__(self, n_estimators=10, max_features=None, bootstrap=True, random_state=None, test_size=0.33):
         """Initializer for MyRandomForestClassifier.
         
         Args:
@@ -416,40 +433,57 @@ class MyRandomForestClassifier:
                 If None, uses sqrt(n_features) (default=None).
             bootstrap(bool): Whether to use bootstrap samples (default=True).
             random_state(int): Random seed for reproducibility (default=None).
+            test_size(float): Proportion of data to use as stratified test set (default=0.33).
         """
         self.n_estimators = n_estimators
         self.max_features = max_features
         self.bootstrap = bootstrap
         self.random_state = random_state
+        self.test_size = test_size
         self.trees = []
-        self.feature_subsets = []
-        self.X_train = None
-        self.y_train = None
+        self.X_remainder = None
+        self.y_remainder = None
+        self.X_test_internal = None
+        self.y_test_internal = None
 
-    def fit(self, X_train, y_train):
-        """Fits a random forest classifier to X_train and y_train using bagging
+    def fit(self, X, y):
+        """Fits a random forest classifier using stratified train/test split.
+        
+        Performs a stratified split creating:
+        - Test set: 1/3 of original data (stratified by class)
+        - Remainder set: 2/3 of original data (used for training)
+        
+        Then trains n_estimators decision trees on the remainder set using bagging
         and random feature selection.
 
         Args:
-            X_train(list of list of obj): The list of training instances (samples).
-                The shape of X_train is (n_train_samples, n_features)
-            y_train(list of obj): The target y values (parallel to X_train)
-                The shape of y_train is n_train_samples
+            X(list of list of obj): The list of all instances (samples).
+                The shape of X is (n_samples, n_features)
+            y(list of obj): The target y values (parallel to X)
+                The shape of y is n_samples
 
         Notes:
-            Creates n_estimators decision trees, each trained on:
-            - A bootstrap sample of the training data (if bootstrap=True)
-            - A random subset of features (size determined by max_features)
+            - Performs stratified split internally to create test and remainder sets
+            - Trains only on the remainder set (2/3 of data)
+            - Each tree is trained on:
+                * A bootstrap sample of the remainder set (if bootstrap=True)
+                * A random subset of features (size determined by max_features)
         """
-        self.X_train = X_train
-        self.y_train = y_train
+        # Import here to avoid circular dependency
+        from mysklearn.myevaluation import stratified_train_test_split
         
         # Set random seed if provided
         if self.random_state is not None:
             random.seed(self.random_state)
         
-        n_samples = len(X_train)
-        n_features = len(X_train[0]) if n_samples > 0 else 0
+        # Perform stratified split: remainder set (train) and test set
+        self.X_remainder, self.X_test_internal, self.y_remainder, self.y_test_internal = \
+            stratified_train_test_split(X, y, test_size=self.test_size, 
+                                       random_state=self.random_state, shuffle=True)
+        
+        # Train on the remainder set only
+        n_samples = len(self.X_remainder)
+        n_features = len(self.X_remainder[0]) if n_samples > 0 else 0
         
         # Determine max_features if not set
         if self.max_features is None:
@@ -460,25 +494,17 @@ class MyRandomForestClassifier:
         
         # Build each tree in the forest
         self.trees = []
-        self.feature_subsets = []
         
         for i in range(self.n_estimators):
-            # Create bootstrap sample or use full dataset
+            # Create bootstrap sample or use full remainder set
             if self.bootstrap:
-                X_sample, y_sample = self._create_bootstrap_sample(X_train, y_train)
+                X_sample, y_sample = self._create_bootstrap_sample(self.X_remainder, self.y_remainder)
             else:
-                X_sample, y_sample = X_train, y_train
+                X_sample, y_sample = self.X_remainder, self.y_remainder
             
-            # Select random feature subset
-            feature_subset = self._select_random_features(n_features)
-            self.feature_subsets.append(feature_subset)
-            
-            # Create feature mapping for this subset
-            X_sample_subset = self._apply_feature_subset(X_sample, feature_subset)
-            
-            # Train a decision tree on the subset
-            tree = MyDecisionTreeClassifier()
-            tree.fit(X_sample_subset, y_sample)
+            # Train a decision tree with random feature selection AT EACH SPLIT
+            tree = MyDecisionTreeClassifier(max_features_per_split=self.max_features)
+            tree.fit(X_sample, y_sample)
             self.trees.append(tree)
 
     def predict(self, X_test):
@@ -495,10 +521,9 @@ class MyRandomForestClassifier:
         # Collect predictions from all trees
         all_predictions = []
         
-        for i, tree in enumerate(self.trees):
-            # Apply feature subset for this tree
-            X_test_subset = self._apply_feature_subset(X_test, self.feature_subsets[i])
-            predictions = tree.predict(X_test_subset)
+        for tree in self.trees:
+            # Each tree uses full feature set, but randomly selects F features at each split
+            predictions = tree.predict(X_test)
             all_predictions.append(predictions)
         
         # Majority vote for each instance
@@ -567,29 +592,21 @@ class MyRandomForestClassifier:
         return X_subset
 
     def get_feature_importances(self):
-        """Calculates feature importances based on how often each feature
-        is used across all trees in the forest.
+        """Calculates uniform feature importances.
+        
+        Note: Since features are randomly selected at each split (not per tree),
+        we return uniform importances. More sophisticated importance calculation
+        would require tracking splits across all trees.
         
         Returns:
             importances(list of float): Feature importance scores (sum to 1.0)
         """
-        if not self.trees or not self.X_train:
+        if not self.trees or not self.X_remainder:
             return []
         
-        n_features = len(self.X_train[0])
-        feature_counts = [0] * n_features
-        
-        # Count how many times each feature appears in feature subsets
-        for feature_subset in self.feature_subsets:
-            for feature_idx in feature_subset:
-                feature_counts[feature_idx] += 1
-        
-        # Normalize to get importances
-        total_count = sum(feature_counts)
-        if total_count == 0:
-            return [0.0] * n_features
-        
-        importances = [count / total_count for count in feature_counts]
+        n_features = len(self.X_remainder[0])
+        # Return uniform importances
+        importances = [1.0 / n_features] * n_features
         return importances
 
     def get_oob_score(self):
@@ -604,7 +621,7 @@ class MyRandomForestClassifier:
         if not self.bootstrap or not self.trees:
             return None
         
-        n_samples = len(self.X_train)
+        n_samples = len(self.X_remainder)
         oob_predictions = [[] for _ in range(n_samples)]
         
         # For each tree, track which samples were OOB
@@ -619,10 +636,8 @@ class MyRandomForestClassifier:
             
             # Make predictions for OOB samples
             if oob_indices:
-                X_oob = [self.X_train[i] for i in oob_indices]
-                X_oob_subset = self._apply_feature_subset(X_oob, 
-                                                         self.feature_subsets[tree_idx])
-                predictions = self.trees[tree_idx].predict(X_oob_subset)
+                X_oob = [self.X_remainder[i] for i in oob_indices]
+                predictions = self.trees[tree_idx].predict(X_oob)
                 
                 for i, idx in enumerate(oob_indices):
                     oob_predictions[idx].append(predictions[i])
@@ -638,7 +653,7 @@ class MyRandomForestClassifier:
                 majority_vote = sorted(vote_counts.items(), 
                                      key=lambda x: (-x[1], str(x[0])))[0][0]
                 
-                if majority_vote == self.y_train[i]:
+                if majority_vote == self.y_remainder[i]:
                     correct += 1
                 total += 1
         
@@ -647,6 +662,20 @@ class MyRandomForestClassifier:
         
         return correct / total
 
+    def get_test_accuracy(self):
+        """Calculates accuracy on the internal stratified test set.
+        
+        Returns:
+            test_accuracy(float): Accuracy on the stratified test set, or None if no test set
+        """
+        if self.X_test_internal is None or self.y_test_internal is None:
+            return None
+        
+        predictions = self.predict(self.X_test_internal)
+        correct = sum(1 for pred, actual in zip(predictions, self.y_test_internal) 
+                     if pred == actual)
+        return correct / len(self.y_test_internal) if len(self.y_test_internal) > 0 else None
+
     def print_forest_info(self):
         """Prints information about the random forest including number of trees,
         feature subsets used, and feature importances.
@@ -654,6 +683,11 @@ class MyRandomForestClassifier:
         print(f"Random Forest with {self.n_estimators} trees")
         print(f"Max features per tree: {self.max_features}")
         print(f"Bootstrap: {self.bootstrap}")
+        
+        if self.X_remainder and self.X_test_internal:
+            print(f"\nDataset split:")
+            print(f"  Remainder set (training): {len(self.X_remainder)} instances")
+            print(f"  Test set (stratified): {len(self.X_test_internal)} instances")
         
         if self.trees:
             importances = self.get_feature_importances()
@@ -664,5 +698,9 @@ class MyRandomForestClassifier:
             if self.bootstrap:
                 oob_score = self.get_oob_score()
                 if oob_score is not None:
-                    print(f"\nOut-of-Bag Score: {oob_score:.4f}")
+                    print(f"\nOut-of-Bag Score (on remainder set): {oob_score:.4f}")
+            
+            test_acc = self.get_test_accuracy()
+            if test_acc is not None:
+                print(f"Test Set Accuracy (stratified): {test_acc:.4f}")
 
