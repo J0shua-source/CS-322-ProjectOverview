@@ -405,12 +405,15 @@ class MyRandomForestClassifier:
 
     Attributes:
         n_estimators(int): The number of decision trees in the forest.
+        n_best_trees(int): The number of best trees to select for final ensemble (M).
+            If None, uses all n_estimators trees.
         max_features(int): The maximum number of features to randomly select at EACH split
             in EACH tree. If None, uses sqrt(n_features).
         bootstrap(bool): Whether bootstrap samples are used when building trees.
         random_state(int): Seed for random number generator for reproducibility.
         test_size(float): Proportion of dataset to use as stratified test set (default=0.33).
         trees(list of MyDecisionTreeClassifier): The collection of decision trees.
+        selected_trees(list of MyDecisionTreeClassifier): The best M trees selected based on accuracy.
         X_remainder(list): The training portion (remainder set) after stratified split.
         y_remainder(list): The training labels (remainder set) after stratified split.
         X_test_internal(list): The stratified test set created during fit.
@@ -424,11 +427,13 @@ class MyRandomForestClassifier:
         - Random feature selection of F attributes AT EACH SPLIT (not per tree)
     """
     
-    def __init__(self, n_estimators=10, max_features=None, bootstrap=True, random_state=None, test_size=0.33):
+    def __init__(self, n_estimators=100, n_best_trees=None, max_features=None, bootstrap=True, random_state=None, test_size=0.33):
         """Initializer for MyRandomForestClassifier.
         
         Args:
-            n_estimators(int): The number of trees in the forest (default=10).
+            n_estimators(int): The number of trees in the forest (default=100).
+            n_best_trees(int): The number of best trees to select for final ensemble (M).
+                If None, uses all n_estimators trees (default=None).
             max_features(int): The number of features to consider when looking for the best split.
                 If None, uses sqrt(n_features) (default=None).
             bootstrap(bool): Whether to use bootstrap samples (default=True).
@@ -436,11 +441,13 @@ class MyRandomForestClassifier:
             test_size(float): Proportion of data to use as stratified test set (default=0.33).
         """
         self.n_estimators = n_estimators
+        self.n_best_trees = n_best_trees
         self.max_features = max_features
         self.bootstrap = bootstrap
         self.random_state = random_state
         self.test_size = test_size
         self.trees = []
+        self.selected_trees = []
         self.X_remainder = None
         self.y_remainder = None
         self.X_test_internal = None
@@ -506,10 +513,17 @@ class MyRandomForestClassifier:
             tree = MyDecisionTreeClassifier(max_features_per_split=self.max_features)
             tree.fit(X_sample, y_sample)
             self.trees.append(tree)
+        
+        # Select best M trees if n_best_trees is specified
+        if self.n_best_trees is not None and self.n_best_trees < self.n_estimators:
+            self._select_best_trees()
+        else:
+            # Use all trees
+            self.selected_trees = self.trees
 
     def predict(self, X_test):
         """Makes predictions for test instances in X_test using majority voting
-        across all trees in the forest.
+        across selected trees in the forest.
 
         Args:
             X_test(list of list of obj): The list of testing samples
@@ -518,10 +532,13 @@ class MyRandomForestClassifier:
         Returns:
             y_predicted(list of obj): The predicted target y values (parallel to X_test)
         """
-        # Collect predictions from all trees
+        # Use selected trees (either all N trees or best M trees)
+        trees_to_use = self.selected_trees if self.selected_trees else self.trees
+        
+        # Collect predictions from selected trees
         all_predictions = []
         
-        for tree in self.trees:
+        for tree in trees_to_use:
             # Each tree uses full feature set, but randomly selects F features at each split
             predictions = tree.predict(X_test)
             all_predictions.append(predictions)
@@ -533,7 +550,7 @@ class MyRandomForestClassifier:
         for sample_idx in range(n_test_samples):
             # Collect votes from all trees for this sample
             votes = [all_predictions[tree_idx][sample_idx] 
-                    for tree_idx in range(self.n_estimators)]
+                    for tree_idx in range(len(trees_to_use))]
             
             # Majority vote with tie-breaking
             vote_counts = Counter(votes)
@@ -590,6 +607,33 @@ class MyRandomForestClassifier:
             subset_instance = [instance[i] for i in feature_subset]
             X_subset.append(subset_instance)
         return X_subset
+    
+    def _select_best_trees(self):
+        """Selects the best M trees based on their accuracy on the remainder set.
+        
+        Uses each tree's performance on the remainder set to rank them and
+        selects the top n_best_trees performers.
+        """
+        if not self.trees or not self.X_remainder:
+            self.selected_trees = self.trees
+            return
+        
+        # Calculate accuracy for each tree on the remainder set
+        tree_accuracies = []
+        
+        for i, tree in enumerate(self.trees):
+            predictions = tree.predict(self.X_remainder)
+            correct = sum(1 for pred, actual in zip(predictions, self.y_remainder) 
+                         if pred == actual)
+            accuracy = correct / len(self.y_remainder) if len(self.y_remainder) > 0 else 0
+            tree_accuracies.append((i, accuracy, tree))
+        
+        # Sort trees by accuracy (descending)
+        tree_accuracies.sort(key=lambda x: x[1], reverse=True)
+        
+        # Select top n_best_trees
+        n_select = min(self.n_best_trees, len(self.trees))
+        self.selected_trees = [tree for _, _, tree in tree_accuracies[:n_select]]
 
     def get_feature_importances(self):
         """Calculates uniform feature importances.
@@ -681,6 +725,8 @@ class MyRandomForestClassifier:
         feature subsets used, and feature importances.
         """
         print(f"Random Forest with {self.n_estimators} trees")
+        if self.n_best_trees is not None and self.n_best_trees < self.n_estimators:
+            print(f"Selected best {len(self.selected_trees)} trees for prediction")
         print(f"Max features per tree: {self.max_features}")
         print(f"Bootstrap: {self.bootstrap}")
         
