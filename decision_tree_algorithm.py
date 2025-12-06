@@ -9,9 +9,9 @@ from sklearn.metrics import accuracy_score, classification_report
 import matplotlib.pyplot as plt
 
 # =====================================
-# 1. Load Dataset (NO PANDAS)
+# 1. Load Dataset
 # =====================================
-filename = "bitcoin_sentiment_discretized.csv"
+filename = "input_data/bitcoin_sentiment_discretized.csv"
 
 rows = []
 with open(filename, newline='', encoding='utf-8') as f:
@@ -37,7 +37,7 @@ y = np.array(y)
 # =====================================
 # 2. Detect categorical features
 # =====================================
-categorical_features = list(range(len(X_cols)))  # All columns are categorical
+categorical_features = list(range(len(X_cols)))  # Making sure all columns are categorical to avoid errors
 
 # =====================================
 # 3. Preprocessor: One-Hot Encode
