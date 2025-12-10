@@ -4,9 +4,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
-from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, classification_report
-import matplotlib.pyplot as plt
 
 # =====================================
 # 1. Load Dataset
@@ -37,7 +36,7 @@ y = np.array(y)
 # =====================================
 # 2. Detect categorical features
 # =====================================
-categorical_features = list(range(len(X_cols)))  # Making sure all columns are categorical to avoid errors
+categorical_features = list(range(len(X_cols)))  # All columns are categorical
 
 # =====================================
 # 3. Preprocessor: One-Hot Encode
@@ -49,18 +48,18 @@ preprocessor = ColumnTransformer(
 )
 
 # =====================================
-# 4. Pipeline = Preprocess + Decision Tree
+# 4. Pipeline = Preprocess + KNN
 # =====================================
 seed = 9
 
 clf = Pipeline(steps=[
     ("preprocess", preprocessor),
-    ("tree", DecisionTreeClassifier(
-        criterion="gini",
-        max_depth=10,
-        random_state=seed,
-        min_samples_split=2,
-        min_samples_leaf=1
+    ("knn", KNeighborsClassifier(
+        n_neighbors=5,
+        weights="uniform",
+        algorithm="auto",
+        metric="minkowski",
+        p=2  # Euclidean distance
     ))
 ])
 
@@ -83,22 +82,3 @@ y_pred = clf.predict(X_test)
 
 print("Accuracy:", accuracy_score(y_test, y_pred))
 print("\nClassification Report:\n", classification_report(y_test, y_pred))
-
-# =====================================
-# 8. Optional: Visualize the Tree
-# =====================================
-tree_model = clf.named_steps["tree"]
-
-feature_names = clf.named_steps["preprocess"] \
-                     .transformers_[0][1] \
-                     .get_feature_names_out(X_cols)
-
-plt.figure(figsize=(20, 12))
-plot_tree(
-    tree_model,
-    feature_names=feature_names,
-    class_names=sorted(set(y)),
-    filled=True,
-    fontsize=7
-)
-plt.show()
